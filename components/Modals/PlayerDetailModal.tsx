@@ -387,7 +387,7 @@ export function PlayerDetailModal({
                 <SectionTitle
                   icon={<Lightbulb className="h-4 w-4 text-[#D97706]" />}
                 >
-                  What's driving this
+                  What&apos;s driving this
                 </SectionTitle>
                 <ul className="mt-2 space-y-1.5">
                   {insights.map((ins, i) => {

@@ -1,14 +1,21 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local file-system cache manager
 //
 // Zero-config JSON cache used to avoid hammering free public endpoints
-// (Sleeper players DB, betting scrapes, ECR pages). Files live in `.cache/`.
+// (Sleeper players DB, betting scrapes, ECR pages). Files live in `.cache/`
+// locally, but fall back to the OS temp dir on read-only serverless hosts
+// (e.g. Vercel, where only /tmp is writable) so deploys don't crash on write.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_DIR = path.join(process.cwd(), ".cache");
+const CACHE_DIR = process.env.CACHE_DIR
+  ? path.resolve(process.env.CACHE_DIR)
+  : process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
+    ? path.join(os.tmpdir(), "rosterpulse-cache")
+    : path.join(process.cwd(), ".cache");
 
 interface CacheEnvelope<T> {
   createdAt: number;

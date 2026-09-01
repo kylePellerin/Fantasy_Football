@@ -10,16 +10,21 @@ import {
   YAxis,
 } from "recharts";
 import {
+  AlertTriangle,
+  CheckCircle2,
   Coins,
   Flame,
   Home,
+  Lightbulb,
+  Minus,
   Newspaper,
   Plane,
   Target,
   TrendingDown,
   TrendingUp,
+  type LucideIcon,
 } from "lucide-react";
-import type { Player } from "@/types";
+import type { Player, ScoreComponent } from "@/types";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +57,137 @@ const COMPONENT_COLORS: Record<string, string> = {
   environment: "#D97706",
 };
 
+// ── Plain-English insight engine (derived only from real component scores) ────
+
+type Tone = "up" | "down" | "neutral";
+
+const TONE: Record<Tone, { color: string; Icon: LucideIcon }> = {
+  up: { color: "#059669", Icon: TrendingUp },
+  down: { color: "#E11D48", Icon: TrendingDown },
+  neutral: { color: "#B45309", Icon: Minus },
+};
+
+const VERDICT_ICON: Record<Tone, LucideIcon> = {
+  up: CheckCircle2,
+  down: AlertTriangle,
+  neutral: Minus,
+};
+
+function quality(raw: number): { word: string; tone: Tone } {
+  if (raw >= 75) return { word: "elite", tone: "up" };
+  if (raw >= 60) return { word: "strong", tone: "up" };
+  if (raw >= 45) return { word: "solid", tone: "neutral" };
+  if (raw >= 30) return { word: "shaky", tone: "down" };
+  return { word: "weak", tone: "down" };
+}
+
+function spreadPhrase(spread: number): string {
+  if (spread === 0) return "pick'em";
+  return spread < 0
+    ? `${Math.abs(spread)}-pt favorite`
+    : `${spread}-pt underdog`;
+}
+
+const article = (word: string) =>
+  /^[aeiou]/i.test(word) ? "an" : "a";
+
+interface Insight {
+  text: string;
+  tone: Tone;
+}
+
+/** Turn each weighted confidence component into a readable, sourced insight. */
+function buildInsights(player: Player): Insight[] {
+  const out: Insight[] = [];
+  for (const c of player.confidence.components) {
+    const q = quality(c.raw);
+    let text: string;
+    switch (c.key) {
+      case "projection":
+        text = `${formatPoints(player.projectedPoints)} projected PPR — ${q.word} output for a ${player.position}.`;
+        break;
+      case "bettingImplied":
+        text = `Vegas implies ${formatPoints(player.odds.impliedTeamTotal)} team points as a ${spreadPhrase(player.odds.spread)} — ${article(q.word)} ${q.word} scoring spot.`;
+        break;
+      case "environment": {
+        const place = player.odds.isHome
+          ? "at home"
+          : `on the road at ${player.opponent}`;
+        text = `Playing ${place}; matchup grades ${player.expert.matchupGrade}/5 — ${article(q.word)} ${q.word} situation.`;
+        break;
+      }
+      case "ecr": {
+        const disagree =
+          player.expert.ecrStdDev >= 6
+            ? ", though rankers disagree widely"
+            : player.expert.ecrStdDev <= 2.5
+              ? " with strong agreement"
+              : "";
+        text = `Experts slot him ${player.expert.positionRank}${disagree} — ${q.word} consensus.`;
+        break;
+      }
+      default:
+        text = `${c.label}: ${q.word}.`;
+    }
+    out.push({ text, tone: q.tone });
+  }
+  if (player.status && player.status !== "active") {
+    out.push({
+      text: `Listed ${player.status.toUpperCase()} — confirm he's active before lineups lock.`,
+      tone: "down",
+    });
+  }
+  return out;
+}
+
+function driverPhrase(c: ScoreComponent): string {
+  switch (c.key) {
+    case "projection":
+      return "a healthy points projection";
+    case "bettingImplied":
+      return "a favorable betting environment";
+    case "environment":
+      return "the game spot and matchup";
+    case "ecr":
+      return "expert consensus";
+    default:
+      return c.label.toLowerCase();
+  }
+}
+
+/** One-line recommendation combining status, top driver, and biggest concern. */
+function getVerdict(player: Player): {
+  headline: string;
+  detail: string;
+  tone: Tone;
+} {
+  const first = player.name.split(" ")[0];
+  if (player.status === "out" || player.status === "ir") {
+    return {
+      headline: "Ruled out — don't start",
+      detail: `${first} is tagged ${player.status.toUpperCase()}. Slot in an active replacement.`,
+      tone: "down",
+    };
+  }
+  const comps = player.confidence.components;
+  const driver = comps.reduce((a, b) => (b.weighted > a.weighted ? b : a));
+  const weakest = comps.reduce((a, b) => (b.raw < a.raw ? b : a));
+  const base =
+    player.confidence.status === "must-start"
+      ? { headline: "Start with confidence", tone: "up" as Tone }
+      : player.confidence.status === "toss-up"
+        ? { headline: "Genuine toss-up", tone: "neutral" as Tone }
+        : { headline: "Lean to the bench", tone: "down" as Tone };
+  const concern =
+    weakest.raw < 45
+      ? ` Keep an eye on ${weakest.label.toLowerCase()} (${Math.round(weakest.raw)}/100).`
+      : "";
+  return {
+    ...base,
+    detail: `${player.confidence.score}/100 confidence, led by ${driverPhrase(driver)}.${concern}`,
+  };
+}
+
 export function PlayerDetailModal({
   player,
   open,
@@ -67,6 +203,10 @@ export function PlayerDetailModal({
     weightPct: Math.round(c.weight * 100),
     contribution: Math.round(c.weighted),
   }));
+
+  const insights = buildInsights(player);
+  const verdict = getVerdict(player);
+  const VerdictLucide = VERDICT_ICON[verdict.tone];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,6 +295,33 @@ export function PlayerDetailModal({
 
           {/* Two-column body */}
           <div className="grid gap-6 p-6 md:grid-cols-2">
+            {/* Verdict — plain-English call, full width */}
+            <section className="md:col-span-2">
+              <div
+                className="flex items-start gap-3 rounded-xl border p-3.5"
+                style={{
+                  borderColor: `${TONE[verdict.tone].color}33`,
+                  background: `${TONE[verdict.tone].color}0d`,
+                }}
+              >
+                <VerdictLucide
+                  className="mt-0.5 h-5 w-5 shrink-0"
+                  style={{ color: TONE[verdict.tone].color }}
+                />
+                <div>
+                  <div
+                    className="text-sm font-bold"
+                    style={{ color: TONE[verdict.tone].color }}
+                  >
+                    {verdict.headline}
+                  </div>
+                  <p className="mt-0.5 text-xs leading-relaxed text-slate-400">
+                    {verdict.detail}
+                  </p>
+                </div>
+              </div>
+            </section>
+
             {/* Left: confidence breakdown */}
             <section>
               <SectionTitle icon={<Target className="h-4 w-4" />}>
@@ -211,8 +378,34 @@ export function PlayerDetailModal({
                   <span className={cn("num font-bold", meta.text)}>
                     {player.confidence.score}
                   </span>
-                  . ≥68 = Must Start, 45–67 = Toss-Up, &lt;45 = Sit.
+                  . ≥55 = Must Start, 32–54 = Toss-Up, &lt;32 = Sit.
                 </p>
+              </div>
+
+              {/* What's driving this call */}
+              <div className="mt-4">
+                <SectionTitle
+                  icon={<Lightbulb className="h-4 w-4 text-[#D97706]" />}
+                >
+                  What's driving this
+                </SectionTitle>
+                <ul className="mt-2 space-y-1.5">
+                  {insights.map((ins, i) => {
+                    const tone = TONE[ins.tone];
+                    return (
+                      <li
+                        key={i}
+                        className="flex items-start gap-2 text-[11px] leading-relaxed"
+                      >
+                        <tone.Icon
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                          style={{ color: tone.color }}
+                        />
+                        <span className="text-slate-300">{ins.text}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             </section>
 

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { cached } from "@/lib/cache";
 import type { EspnCredentials, LeagueRef } from "@/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +152,76 @@ export function espnHeadshot(playerId: number): string {
 
 export function espnTeamLogo(abbrev: string): string {
   return `https://a.espncdn.com/i/teamlogos/nfl/500/${abbrev.toLowerCase()}.png`;
+}
+
+export interface EspnPlayerLite {
+  id: number;
+  name: string;
+  team: string;
+  position: string;
+}
+
+interface EspnRawPlayer {
+  id?: number;
+  fullName?: string;
+  defaultPositionId?: number;
+  proTeamId?: number;
+  player?: EspnRawPlayer;
+}
+
+function normalizePlayerName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[.'`]/g, "")
+    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, "")
+    .trim();
+}
+
+/**
+ * The full active NFL player universe as a normalized-name → player map, used to
+ * resolve official ESPN headshots. ESPN ignores ranking/stat filters on the
+ * public players endpoint, so this is used only for identity + faces, never for
+ * projections. ~2.3MB; cached 24h.
+ */
+export async function getEspnPlayerIndex(
+  season: string,
+): Promise<Record<string, EspnPlayerLite>> {
+  return cached(
+    `espn_player_index_${season}`,
+    async () => {
+      const url = `${READS_BASE}/seasons/${season}/players?view=players_wl`;
+      const { data } = await axios.get<unknown>(url, {
+        timeout: 20_000,
+        headers: {
+          Accept: "application/json",
+          "User-Agent": BROWSER_UA,
+          "x-fantasy-filter": JSON.stringify({
+            players: { limit: 20000, filterActive: { value: true } },
+          }),
+        },
+      });
+      const arr = (
+        Array.isArray(data)
+          ? data
+          : ((data as { players?: EspnRawPlayer[] })?.players ?? [])
+      ) as EspnRawPlayer[];
+      const out: Record<string, EspnPlayerLite> = {};
+      for (const raw of arr) {
+        const pl = raw.player ?? raw;
+        if (!pl.fullName || !pl.id) continue;
+        const key = normalizePlayerName(pl.fullName);
+        if (key in out) continue;
+        out[key] = {
+          id: pl.id,
+          name: pl.fullName,
+          team: ESPN_PRO_TEAM[pl.proTeamId ?? 0] ?? "",
+          position: ESPN_POSITION[pl.defaultPositionId ?? 0] ?? "",
+        };
+      }
+      return out;
+    },
+    24 * 60 * 60 * 1000,
+  );
 }
 
 /** Normalize a SWID to the brace-wrapped form ESPN expects. */

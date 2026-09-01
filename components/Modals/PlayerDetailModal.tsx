@@ -381,32 +381,6 @@ export function PlayerDetailModal({
                   . ≥55 = Must Start, 32–54 = Toss-Up, &lt;32 = Sit.
                 </p>
               </div>
-
-              {/* What's driving this call */}
-              <div className="mt-4">
-                <SectionTitle
-                  icon={<Lightbulb className="h-4 w-4 text-[#D97706]" />}
-                >
-                  What&apos;s driving this
-                </SectionTitle>
-                <ul className="mt-2 space-y-1.5">
-                  {insights.map((ins, i) => {
-                    const tone = TONE[ins.tone];
-                    return (
-                      <li
-                        key={i}
-                        className="flex items-start gap-2 text-[11px] leading-relaxed"
-                      >
-                        <tone.Icon
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                          style={{ color: tone.color }}
-                        />
-                        <span className="text-slate-300">{ins.text}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
             </section>
 
             {/* Right: betting market */}
@@ -480,9 +454,33 @@ export function PlayerDetailModal({
                   the projection, matchup, and expert consensus.
                 </p>
               )}
-            </section>
 
-            {/* Matchup narrative — full width */}
+              {/* What's driving this call */}
+              <div className="mt-4">
+                <SectionTitle
+                  icon={<Lightbulb className="h-4 w-4 text-[#D97706]" />}
+                >
+                  What&apos;s driving this
+                </SectionTitle>
+                <ul className="mt-2 space-y-1.5">
+                  {insights.map((ins, i) => {
+                    const tone = TONE[ins.tone];
+                    return (
+                      <li
+                        key={i}
+                        className="flex items-start gap-2 text-[11px] leading-relaxed"
+                      >
+                        <tone.Icon
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                          style={{ color: tone.color }}
+                        />
+                        <span className="text-slate-300">{ins.text}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </section>
             <section className="md:col-span-2">
               <SectionTitle icon={<TrendingUp className="h-4 w-4" />}>
                 Matchup & Narrative

@@ -3,18 +3,21 @@ import type { Metadata } from "next";
 import { ArrowRight, Home, Plane, TrendingUp } from "lucide-react";
 import { getEcr } from "@/lib/scrapers/experts";
 import { getGameLines } from "@/lib/scrapers/odds";
-import { getCurrentNflWeek } from "@/lib/schedule";
+import { getCurrentNflWeek, getSeason } from "@/lib/schedule";
+import { espnHeadshot, getEspnPlayerIndex } from "@/lib/espn";
 import { cn } from "@/lib/utils";
 
 // Regenerate at most every 30 min so crawlers get fresh, static-fast HTML.
 export const revalidate = 1800;
 
 const POSITIONS = [
-  { key: "QB", label: "Quarterback", limit: 24 },
-  { key: "RB", label: "Running Back", limit: 36 },
-  { key: "WR", label: "Wide Receiver", limit: 36 },
-  { key: "TE", label: "Tight End", limit: 24 },
+  { key: "QB", label: "Quarterback" },
+  { key: "RB", label: "Running Back" },
+  { key: "WR", label: "Wide Receiver" },
+  { key: "TE", label: "Tight End" },
 ] as const;
+
+const TOP_N = 20;
 
 const ALIAS: Record<string, string> = {
   WSH: "WAS",
@@ -30,16 +33,25 @@ const norm = (t?: string) => {
   return ALIAS[u] ?? u;
 };
 
+const normName = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[.'`]/g, "")
+    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, "")
+    .trim();
+
 interface MatchupCtx {
   opp: string;
   isHome: boolean;
   implied: number;
+  spread: number;
+  total: number;
 }
 
 export async function generateMetadata(): Promise<Metadata> {
   const week = getCurrentNflWeek();
   const title = `Week ${week} Fantasy Football Rankings (PPR Start/Sit)`;
-  const description = `Free Week ${week} PPR fantasy football rankings for QB, RB, WR and TE — expert consensus blended with this week's Vegas betting environment. Updated automatically.`;
+  const description = `Free Week ${week} PPR fantasy football rankings for QB, RB, WR and TE — the top 20 at each position with ESPN headshots and this week's game lines (spread, total, implied team points).`;
   return {
     title,
     description,
@@ -55,14 +67,49 @@ function impliedTone(implied: number): string {
   return "text-[#E11D48]";
 }
 
+function fmtSpread(spread: number): string {
+  if (spread === 0) return "PK";
+  return spread > 0 ? `+${spread}` : `${spread}`;
+}
+
+function Face({ id, name }: { id?: number; name: string }) {
+  const initials = name
+    .split(" ")
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  if (!id) {
+    return (
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-500">
+        {initials}
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={espnHeadshot(id)}
+      alt={name}
+      loading="lazy"
+      width={36}
+      height={36}
+      className="h-9 w-9 shrink-0 rounded-full bg-slate-100 object-cover ring-1 ring-black/5"
+    />
+  );
+}
+
 export default async function RankingsPage() {
   const week = getCurrentNflWeek();
-  const [qb, rb, wr, te, lines] = await Promise.all([
+  const season = getSeason();
+  const [qb, rb, wr, te, lines, espnIndex] = await Promise.all([
     getEcr("QB"),
     getEcr("RB"),
     getEcr("WR"),
     getEcr("TE"),
     getGameLines(week),
+    getEspnPlayerIndex(season),
   ]);
   const byPos: Record<string, typeof qb> = { QB: qb, RB: rb, WR: wr, TE: te };
 
@@ -72,11 +119,15 @@ export default async function RankingsPage() {
       opp: norm(l.awayTeam),
       isHome: true,
       implied: l.homeImpliedTotal,
+      spread: l.homeSpread,
+      total: l.total,
     });
     ctx.set(norm(l.awayTeam), {
       opp: norm(l.homeTeam),
       isHome: false,
       implied: l.awayImpliedTotal,
+      spread: -l.homeSpread,
+      total: l.total,
     });
   }
 
@@ -116,11 +167,10 @@ export default async function RankingsPage() {
           Week {week} Fantasy Football Rankings
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
-          Free PPR start/sit rankings for quarterbacks, running backs, wide
-          receivers, and tight ends. Every player is ranked by live expert
-          consensus and paired with this week&apos;s Vegas betting environment —
-          the implied team total is a strong proxy for scoring upside. Want
-          personalized calls for <em>your</em> exact roster?{" "}
+          Free PPR rankings — the top 20 at every position (QB, RB, WR, TE) with
+          player headshots and this week&apos;s game lines from ESPN: spread,
+          over/under, and implied team total (a strong proxy for scoring upside).
+          Want start/sit calls for <em>your</em> exact roster?{" "}
           <Link href="/" className="font-semibold text-[#059669] underline">
             Connect your Sleeper or ESPN league
           </Link>
@@ -146,49 +196,62 @@ export default async function RankingsPage() {
         {POSITIONS.map((pos) => {
           const rows = byPos[pos.key]
             .filter((e) => e.team && e.team !== "FA")
-            .slice(0, pos.limit);
+            .slice(0, TOP_N);
 
           return (
             <section key={pos.key} id={pos.key.toLowerCase()} className="scroll-mt-6">
               <h2 className="text-xl font-bold text-slate-900">
-                Week {week} {pos.label} ({pos.key}) Rankings
+                Week {week} {pos.label} ({pos.key}) Rankings — Top {TOP_N}
               </h2>
               {rows.length === 0 ? (
                 <p className="mt-3 rounded-xl border border-white/[0.06] bg-panel p-4 text-sm text-slate-500 shadow-panel">
                   Rankings are refreshing — check back in a few minutes.
                 </p>
               ) : (
-                <div className="mt-4 overflow-hidden rounded-2xl border border-white/[0.06] bg-panel shadow-panel">
-                  <table className="w-full text-left text-sm">
+                <div className="mt-4 overflow-x-auto rounded-2xl border border-white/[0.06] bg-panel shadow-panel">
+                  <table className="w-full min-w-[600px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-500">
-                        <th className="w-12 px-4 py-3 font-semibold">#</th>
-                        <th className="px-4 py-3 font-semibold">Player</th>
-                        <th className="px-4 py-3 font-semibold">Team</th>
-                        <th className="px-4 py-3 font-semibold">Matchup</th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          Implied Total
+                        <th className="w-10 px-3 py-3 font-semibold">#</th>
+                        <th className="px-3 py-3 font-semibold">Player</th>
+                        <th className="px-3 py-3 font-semibold">Matchup</th>
+                        <th className="px-3 py-3 text-center font-semibold">
+                          Spread
+                        </th>
+                        <th className="px-3 py-3 text-center font-semibold">
+                          O/U
+                        </th>
+                        <th className="px-3 py-3 text-right font-semibold">
+                          Team Tot
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((e, i) => {
                         const m = ctx.get(norm(e.team));
+                        const espn = espnIndex[normName(e.player)];
                         return (
                           <tr
                             key={`${e.player}-${i}`}
                             className="border-b border-white/[0.04] last:border-0 transition-colors hover:bg-white/[0.02]"
                           >
-                            <td className="px-4 py-3 num font-bold text-slate-400">
+                            <td className="num px-3 py-2.5 font-bold text-slate-400">
                               {i + 1}
                             </td>
-                            <td className="px-4 py-3 font-semibold text-slate-900">
-                              {e.player}
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-3">
+                                <Face id={espn?.id} name={e.player} />
+                                <div className="min-w-0">
+                                  <div className="truncate font-semibold text-slate-900">
+                                    {e.player}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {e.team} · {e.positionRank}
+                                  </div>
+                                </div>
+                              </div>
                             </td>
-                            <td className="px-4 py-3 text-slate-600">
-                              {e.team}
-                            </td>
-                            <td className="px-4 py-3">
+                            <td className="px-3 py-2.5">
                               {m ? (
                                 <span className="inline-flex items-center gap-1.5 text-slate-600">
                                   {m.isHome ? (
@@ -202,7 +265,13 @@ export default async function RankingsPage() {
                                 <span className="text-slate-400">BYE</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-right">
+                            <td className="num px-3 py-2.5 text-center text-slate-600">
+                              {m ? fmtSpread(m.spread) : "—"}
+                            </td>
+                            <td className="num px-3 py-2.5 text-center text-slate-600">
+                              {m ? m.total.toFixed(1) : "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
                               {m ? (
                                 <span
                                   className={cn(
@@ -255,11 +324,12 @@ export default async function RankingsPage() {
 
       {/* Footer */}
       <footer className="mt-10 border-t border-white/[0.06] pt-6 text-xs leading-relaxed text-slate-500">
-        Rankings reflect expert consensus (FantasyPros) and betting environment
-        derived from public sportsbook lines, refreshed automatically. Implied
-        team total is the points a team is projected to score based on the spread
-        and game total — a higher number signals a better fantasy scoring spot.
-        Not affiliated with the NFL, ESPN, or Sleeper.
+        Player order reflects live expert consensus; headshots and game lines
+        (spread, over/under, and implied team total) come from ESPN&apos;s public
+        feeds. Implied team total is the points a team is projected to score from
+        the spread and game total — higher signals a better scoring spot. No
+        betting props or point projections are invented. Not affiliated with the
+        NFL, ESPN, or Sleeper.
       </footer>
     </main>
   );

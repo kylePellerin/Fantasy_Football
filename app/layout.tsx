@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/react";
 import { Providers } from "@/components/providers";
 import { SITE_URL, SITE_NAME, SITE_TITLE, SITE_DESCRIPTION } from "@/lib/site";
 
@@ -71,6 +72,7 @@ export default function RootLayout({
         className="ambient-glow min-h-screen bg-canvas font-sans text-slate-800"
       >
         <Providers>{children}</Providers>
+        <Analytics />
       </body>
     </html>
   );

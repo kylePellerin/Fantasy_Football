@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Activity,
@@ -90,6 +91,21 @@ export function Onboarding({ onConnect, onDemo }: OnboardingProps) {
           Explore demo data
         </Button>
       </motion.div>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.24 }}
+        className="mt-4 text-xs text-slate-500"
+      >
+        No account yet?{" "}
+        <Link
+          href="/rankings"
+          className="font-semibold text-[#059669] underline underline-offset-2"
+        >
+          Browse this week&apos;s free fantasy rankings
+        </Link>
+      </motion.p>
 
       <div className="mt-12 grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
         {FEATURES.map((f, i) => (
